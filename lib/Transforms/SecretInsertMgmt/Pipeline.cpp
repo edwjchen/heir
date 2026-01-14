@@ -4,6 +4,7 @@
 
 #include "lib/Analysis/LevelAnalysis/LevelAnalysis.h"
 #include "lib/Analysis/MulDepthAnalysis/MulDepthAnalysis.h"
+#include "lib/Analysis/OptimizeBootstrapILPAnalysis/OptimizeBootstrapILPAnalysis.h"
 #include "lib/Analysis/SecretnessAnalysis/SecretnessAnalysis.h"
 #include "lib/Dialect/Mgmt/IR/MgmtOps.h"
 #include "lib/Dialect/Secret/IR/SecretOps.h"
@@ -13,7 +14,9 @@
 #include "mlir/include/mlir/Analysis/DataFlowFramework.h"  // from @llvm-project
 #include "mlir/include/mlir/Dialect/Arith/IR/Arith.h"      // from @llvm-project
 #include "mlir/include/mlir/Dialect/Tensor/IR/Tensor.h"    // from @llvm-project
+#include "mlir/include/mlir/IR/Builders.h"                 // from @llvm-project
 #include "mlir/include/mlir/IR/PatternMatch.h"             // from @llvm-project
+#include "mlir/include/mlir/IR/Visitors.h"                 // from @llvm-project
 #include "mlir/include/mlir/Pass/PassManager.h"            // from @llvm-project
 #include "mlir/include/mlir/Support/LLVM.h"                // from @llvm-project
 #include "mlir/include/mlir/Transforms/WalkPatternRewriteDriver.h"  // from @llvm-project
@@ -46,6 +49,13 @@ LogicalResult runInsertMgmtPipeline(Operation* top,
   insertRelinearizeAfterMult(top, solver, options.includeFloats);
   rerunDataflow(solver, top);
 
+  // insert BootstrapOp using ILP optimizations
+  // TODO: add more details here.
+  if (options.bootstrapILPLevelBudget.has_value()) {
+    insertBootstrapILP(top, solver, options.bootstrapILPLevelBudget.value());
+    rerunDataflow(solver, top);
+  }
+
   // insert BootstrapOp after mgmt::ModReduceOp
   // This must be run before level mismatch
   // NOTE: actually bootstrap before mod reduce is better
@@ -53,7 +63,7 @@ LogicalResult runInsertMgmtPipeline(Operation* top,
   // and these op done there could be minimal cost.
   // However, this greedy strategy is temporary so not too much
   // optimization now
-  if (options.bootstrapWaterline.has_value()) {
+  else if (options.bootstrapWaterline.has_value()) {
     insertBootstrapWaterLine(top, solver, options.bootstrapWaterline.value());
     rerunDataflow(solver, top);
   }
@@ -168,6 +178,63 @@ void handleCrossMulDepthOps(Operation* top, DataFlowSolver& solver,
   (void)walkAndApplyPatterns(top, std::move(patterns));
 }
 
+void insertBootstrapILP(Operation* top, DataFlowSolver& solver,
+                        int levelBudget) {
+  MLIRContext* ctx = top->getContext();
+  LLVM_DEBUG(llvm::dbgs() << "Insert Bootstrap using ILP optimization\n");
+
+  // Process each secret::GenericOp similar to OptimizeRelinearization
+  top->walk([&](secret::GenericOp genericOp) {
+    // Remove all existing bootstrap ops. This makes the IR invalid, because the
+    // level information is incorrect. However, the correctness of the ILP
+    // ensures the level information is made correct at the end.
+    genericOp->walk([&](mgmt::BootstrapOp op) {
+      op.getResult().replaceAllUsesWith(op.getOperand());
+      op.erase();
+    });
+
+    // Run the bootstrap ILP analysis
+    OptimizeBootstrapILPAnalysis analysis(genericOp, &solver, levelBudget);
+    if (failed(analysis.solve())) {
+      genericOp->emitError(
+          "Failed to solve the bootstrap optimization problem");
+      return;
+    }
+
+    OpBuilder builder(ctx);
+
+    genericOp->walk([&](Operation* op) {
+      bool shouldInsert = analysis.shouldInsertBootstrap(op);
+      // Only print for operations that might have bootstrap decisions
+      if (isa<arith::MulFOp>(op) || shouldInsert) {
+        llvm::errs() << "Checking operation: " << op->getName()
+                     << " (op ptr: " << (void*)op
+                     << ") -> shouldInsertBootstrap = " << shouldInsert << "\n";
+      }
+      if (!shouldInsert) return;
+
+      llvm::errs() << "INSERTING bootstrap after: " << op->getName() << "\n";
+      LLVM_DEBUG(llvm::dbgs()
+                 << "Inserting bootstrap after: " << op->getName() << "\n");
+
+      builder.setInsertionPointAfter(op);
+      for (Value result : op->getResults()) {
+        if (!isSecret(result, &solver)) {
+          continue;
+        }
+        auto bootstrapOp = mgmt::BootstrapOp::create(builder, op->getLoc(),
+                                                     result.getType(), result);
+        result.replaceAllUsesExcept(bootstrapOp, {bootstrapOp});
+
+        // Update solver state
+        auto* secretnessLattice =
+            solver.getOrCreateState<SecretnessLattice>(bootstrapOp);
+        secretnessLattice->getValue().setSecretness(true);
+      }
+    });
+  });
+}
+
 void insertBootstrapWaterLine(Operation* top, DataFlowSolver& solver,
                               int bootstrapWaterline) {
   MLIRContext* ctx = top->getContext();
@@ -178,6 +245,5 @@ void insertBootstrapWaterLine(Operation* top, DataFlowSolver& solver,
                                                       bootstrapWaterline);
   (void)walkAndApplyPatterns(top, std::move(patterns));
 }
-
 }  // namespace heir
 }  // namespace mlir

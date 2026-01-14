@@ -201,7 +201,6 @@ struct BootstrapWaterLine : public OpRewritePattern<Op> {
   DataFlowSolver* solver;
   int waterline;
 };
-
 }  // namespace heir
 }  // namespace mlir
 

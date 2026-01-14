@@ -13,6 +13,7 @@ struct InsertMgmtPipelineOptions {
   bool modReduceAfterMul;
   bool modReduceBeforeMulIncludeFirstMul;
   std::optional<int64_t> bootstrapWaterline;
+  std::optional<int64_t> bootstrapILPLevelBudget;
 };
 
 // Run the secret-insert-mgmt pipeline.
@@ -46,6 +47,9 @@ void handleCrossMulDepthOps(Operation* top, DataFlowSolver& solver,
 
 void insertBootstrapWaterLine(Operation* top, DataFlowSolver& solver,
                               int bootstrapWaterline);
+
+void insertBootstrapILP(Operation* top, DataFlowSolver& solver,
+                        int levelBudget);
 
 }  // namespace heir
 }  // namespace mlir

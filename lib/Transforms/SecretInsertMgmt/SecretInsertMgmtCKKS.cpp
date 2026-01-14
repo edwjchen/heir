@@ -40,6 +40,8 @@ struct SecretInsertMgmtCKKS
     options.modReduceAfterMul = afterMul;
     options.modReduceBeforeMulIncludeFirstMul = beforeMulIncludeFirstMul;
     options.bootstrapWaterline = bootstrapWaterline;
+    // TODO: Temporary for testing ILP - remove or make configurable
+    options.bootstrapILPLevelBudget = 10;  // Test with level budget of 10
     LogicalResult result = runInsertMgmtPipeline(getOperation(), options);
 
     if (failed(result)) {

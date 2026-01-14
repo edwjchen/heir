@@ -57,6 +57,7 @@ cc_library(
         ":pass_inc_gen",
         "@heir//lib/Analysis/LevelAnalysis",
         "@heir//lib/Analysis/MulDepthAnalysis",
+        "@heir//lib/Analysis/OptimizeBootstrapILPAnalysis",
         "@heir//lib/Analysis/SecretnessAnalysis",
         "@heir//lib/Dialect:ModuleAttributes",
         "@heir//lib/Dialect/Mgmt/IR:Dialect",
