@@ -91,6 +91,7 @@
 #include "lib/Transforms/LowerPolynomialEval/LowerPolynomialEval.h"
 #include "lib/Transforms/LowerUnpack/LowerUnpack.h"
 #include "lib/Transforms/OperationBalancer/OperationBalancer.h"
+#include "lib/Transforms/ILPBootstrapPlacement/ILPBootstrapPlacement.h"
 #include "lib/Transforms/OptimizeRelinearization/OptimizeRelinearization.h"
 #include "lib/Transforms/PolynomialApproximation/PolynomialApproximation.h"
 #include "lib/Transforms/PopulateScale/PopulateScale.h"
@@ -303,6 +304,7 @@ int main(int argc, char** argv) {
   registerStraightLineVectorizerPasses();
   registerUnusedMemRefPasses();
   registerValidateNoisePasses();
+  registerILPBootstrapPlacementPasses();
   registerOptimizeRelinearizationPasses();
   registerPolynomialApproximationPasses();
   registerPropagateAnnotationPasses();
